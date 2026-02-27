@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, Eye, EyeOff, Loader2, ArrowLeft, UserPlus, KeyRound, MailCheck, RefreshCw, AlertCircle } from "lucide-react";
 import Link from "next/link";
@@ -25,7 +25,7 @@ const updatePasswordSchema = z.object({
 
 type ViewState = 'login' | 'register' | 'forgot_password' | 'check_email' | 'update_password';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -320,5 +320,17 @@ export default function LoginPage() {
         )}
       </motion.div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
