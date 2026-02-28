@@ -14,22 +14,29 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/src/utils/supabase/client";
-import { sileo } from "sileo";
 import { type User as SupabaseUser } from "@supabase/supabase-js";
+import { useNotification } from "@/src/context/NotificationContext";
 
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const { notify } = useNotification();
   
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      if (user) {
+        // Prioridad: 1. avatar_url (custom) -> 2. picture (Google) -> null
+        const profilePic = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+        setAvatarUrl(profilePic);
+      }
     };
     getUser();
   }, [supabase]);
@@ -38,10 +45,10 @@ export default function Navbar() {
     setIsLoggingOut(true);
     try {
       await supabase.auth.signOut();
-      sileo.success({ title: "Sesión cerrada correctamente" });
+      notify("Sesión cerrada correctamente", "success");
       router.push("/login");
     } catch {
-      sileo.error({ title: "Error al cerrar sesión" });
+      notify("Error al cerrar sesión", "error");
     } finally {
       setIsLoggingOut(false);
     }
@@ -98,9 +105,9 @@ export default function Navbar() {
               className="flex items-center gap-2 p-1 pr-3 bg-slate-50 border border-slate-100 rounded-full hover:bg-slate-100 transition-all"
             >
               <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 overflow-hidden border border-white">
-                {user?.user_metadata?.avatar_url ? (
+                {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   <User className="w-4 h-4" />
                 )}
@@ -120,9 +127,13 @@ export default function Navbar() {
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-20"
                   >
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
+                    <Link 
+                      href="/dashboard/profile"
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
+                    >
                       <User className="w-4 h-4" /> Mi Perfil
-                    </button>
+                    </Link>
                     <div className="h-px bg-slate-100 my-1 mx-2" />
                     <button 
                       onClick={handleSignOut}
