@@ -1,346 +1,293 @@
 "use client";
-
-import { useState, useEffect, useMemo, useRef } from "react";
-import { motion } from "framer-motion";
-import { User, Lock, ShieldCheck, Mail, CheckCircle2, AlertCircle, ArrowLeft, Camera, Loader2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence, Reorder } from "framer-motion";
+import { Calendar } from "lucide-react";
 import { createClient } from "@/src/utils/supabase/client";
-import { useNotification } from "@/src/context/NotificationContext";
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
-import Link from "next/link";
 import { Database } from "@/src/types/database.types";
-import Image from "next/image";
 
-type Task = Database['public']['Tables']['tasks']['Row'];
+import CreateTaskForm from "@/src/components/dashboard/CreateTaskForm";
+import FilterCarousel from "@/src/components/dashboard/FilterCarousel";
+import TaskItem from "@/src/components/dashboard/TaskItem";
+import { useNotification } from "@/src/context/NotificationContext";
+import { usePomodoro } from "@/src/context/PomodoroContext";
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: { value: number }[];
-  label?: string;
-}
+type TaskRow = Database['public']['Tables']['tasks']['Row'];
+type Task = TaskRow & { position?: number };
+type Priority = 'baja' | 'normal' | 'alta';
+type FilterType = 'todas' | 'hoy' | 'proximas' | 'urgentes';
 
-const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 p-3 rounded-2xl shadow-xl text-white">
-        <p className="font-bold text-sm mb-1">{label}</p>
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-indigo-400" />
-          <span className="font-medium text-sm">{payload[0].value} completadas</span>
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
-
-export default function ProfilePage() {
+export default function DashboardPage() {
   const supabase = createClient();
   const { notify } = useNotification();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const { focusTask, closePomodoro } = usePomodoro();
+  
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<FilterType>('todas');
   
-  // Estados de edición y carga
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [tempName, setTempName] = useState("");
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState<Priority>('normal');
+  const [newTaskDate, setNewTaskDate] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
   
-  // Estados de contraseña
-  const [newPassword, setNewPassword] = useState("");
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [greeting, setGreeting] = useState("¡Hola!");
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const initUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserName(user.user_metadata?.full_name || "Usuario");
-        setTempName(user.user_metadata?.full_name || "Usuario");
-        setUserEmail(user.email || "");
-        
-        // Prioridad: 1. avatar_url (custom) -> 2. picture (Google) -> null (Iniciales)
-        const profilePic = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-        setAvatarUrl(profilePic);
-        
-        const { data } = await supabase.from('tasks').select('*');
-        if (data) setTasks(data);
+      if (user?.user_metadata?.full_name) {
+        setUserName(user.user_metadata.full_name.split(" ")[0]);
       }
-      setIsLoading(false);
+      
+      const hour = new Date().getHours();
+      if (hour >= 5 && hour < 12) setGreeting("¡Buen día");
+      else if (hour >= 12 && hour < 20) setGreeting("¡Buenas tardes");
+      else setGreeting("¡Buenas noches");
     };
-    fetchUserData();
+    initUser();
   }, [supabase]);
 
-  // ----------------------------------------------------------------
-  // LÓGICA DE AVATAR (ANTI-ERRORES Y UPLOAD)
-  // ----------------------------------------------------------------
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      if (!event.target.files || event.target.files.length === 0) return;
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('position', { ascending: false })
+        .order('created_at', { ascending: false });
+        
+      if (error) notify("No pudimos cargar tus tareas", "error");
+      else setTasks(data || []);
       
-      const file = event.target.files[0];
-      const MAX_SIZE_MB = 15;
-      const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+      setIsLoading(false);
+    };
+    fetchTasks();
+  }, [supabase, notify]);
 
-      // Anti-Error 1: Tipo de archivo
-      if (!file.type.startsWith('image/')) {
-        notify("Solo se permiten archivos de imagen (JPG, PNG, etc)", "error");
-        return;
-      }
-
-      // Anti-Error 2: Límite de peso
-      if (file.size > MAX_SIZE_BYTES) {
-        notify(`La imagen es muy pesada (Máximo ${MAX_SIZE_MB}MB)`, "error");
-        return;
-      }
-
-      setIsUploadingAvatar(true);
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      // Subir a Supabase Storage
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Obtener URL Pública
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
-
-      // Guardar URL en los metadatos del usuario
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: publicUrl }
-      });
-
-      if (updateError) throw updateError;
-
-      setAvatarUrl(publicUrl);
-      notify("Foto de perfil actualizada", "success");
-    } catch (error) {
-      notify("Hubo un error al subir la imagen", "error");
-      console.error(error);
-    } finally {
-      setIsUploadingAvatar(false);
-      if (fileInputRef.current) fileInputRef.current.value = ""; // Resetear input
-    }
+  const cyclePriority = () => {
+    const order: Priority[] = ['normal', 'alta', 'baja'];
+    const nextIndex = (order.indexOf(newTaskPriority) + 1) % order.length;
+    setNewTaskPriority(order[nextIndex]);
   };
 
-  const isPasswordValid = newPassword.length >= 6;
+  const priorityColors = {
+    normal: "text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800",
+    alta: "text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20",
+    baja: "text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20"
+  };
 
-  const handleUpdateName = async () => {
-    if (!tempName.trim() || tempName === userName) {
-      setIsEditingName(false);
-      return;
-    }
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = newTaskTitle.trim();
+    if (!title || isAdding) return;
+
+    setIsAdding(true);
+    setNewTaskTitle(""); 
+    const currentPriority = newTaskPriority;
+    const currentDate = newTaskDate || null;
     
-    const { error } = await supabase.auth.updateUser({
-      data: { full_name: tempName }
+    setNewTaskPriority('normal');
+    setNewTaskDate("");
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const maxPosition = tasks.length > 0 ? Math.max(...tasks.map(t => t.position || 0)) : 0;
+    const newPosition = maxPosition + 1;
+
+    const tempTask: Task = {
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      title: title,
+      is_completed: false,
+      priority: currentPriority,
+      due_date: currentDate,
+      created_at: new Date().toISOString(),
+      position: newPosition,
+    };
+    
+    setTasks((prev) => [tempTask, ...prev]);
+    const { data: savedTask, error } = await supabase
+      .from('tasks')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert([{ user_id: user.id, title: title, priority: currentPriority, due_date: currentDate, position: newPosition } as any])
+      .select()
+      .single();
+
+    if (error) {
+      setTasks((prev) => prev.filter((t) => t.id !== tempTask.id));
+      notify("Error al guardar la tarea", "error");
+    } else if (savedTask) {
+      setTasks((prev) => prev.map((t) => t.id === tempTask.id ? savedTask : t));
+      notify("Tarea creada", "success");
+    }
+    setIsAdding(false);
+  };
+
+  const handleReorder = async (reorderedFilteredTasks: Task[]) => {
+    const currentPositions = [...reorderedFilteredTasks]
+      .map(t => t.position || 0)
+      .sort((a, b) => b - a);
+
+    const updatedTasks = reorderedFilteredTasks.map((t, index) => ({
+      ...t,
+      position: currentPositions[index]
+    }));
+
+    setTasks(prev => {
+      const newTasks = [...prev];
+      updatedTasks.forEach(ut => {
+        const idx = newTasks.findIndex(t => t.id === ut.id);
+        if (idx !== -1) newTasks[idx] = ut;
+      });
+      return newTasks.sort((a, b) => {
+        if ((b.position || 0) !== (a.position || 0)) return (b.position || 0) - (a.position || 0);
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
     });
 
-    if (error) {
-      notify("Error al actualizar el nombre", "error");
-      setTempName(userName); // Revertir
-    } else {
-      setUserName(tempName);
-      notify("Nombre actualizado correctamente", "success");
+    try {
+      await Promise.all(
+        updatedTasks.map(task => 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          supabase.from('tasks').update({ position: task.position } as any).eq('id', task.id)
+        )
+      );
+    } catch {
+      notify("Error de sincronización al reordenar", "error");
     }
-    setIsEditingName(false);
   };
 
-  const handleUpdatePassword = async () => {
-    if (!isPasswordValid) return;
-    setIsUpdatingPassword(true);
-    
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    
-    if (error) {
-      notify("Error al actualizar la contraseña", "error");
-    } else {
-      notify("Contraseña protegida con éxito", "success");
-      setNewPassword(""); 
+  const toggleTask = async (task: Task) => {
+    const newStatus = !task.is_completed;
+    setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, is_completed: newStatus } : t));
+
+    if (newStatus && focusTask?.id === task.id) {
+      closePomodoro();
     }
-    setIsUpdatingPassword(false);
+
+    const { error } = await supabase.from('tasks').update({ is_completed: newStatus }).eq('id', task.id);
+    if (error) {
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, is_completed: !newStatus } : t));
+      notify("Error al actualizar", "error");
+    }
   };
 
-  const weeklyData = useMemo(() => {
-    const data = [];
+  const editTask = async (task: Task, newTitle: string, newPriority: Priority, newDate: string | null) => {
+    const oldTask = { ...task };
+    setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, title: newTitle, priority: newPriority, due_date: newDate } : t));
+
+    const { error } = await supabase.from('tasks').update({ title: newTitle, priority: newPriority, due_date: newDate }).eq('id', task.id);
+    if (error) {
+      setTasks((prev) => prev.map((t) => t.id === task.id ? oldTask : t));
+      notify("Error al editar la tarea", "error");
+    } else {
+      notify("Tarea actualizada", "success");
+    }
+  };
+
+  const deleteTask = async (task: Task) => {
+    setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    
+    if (focusTask?.id === task.id) {
+      closePomodoro();
+    }
+
+    const timeoutId = setTimeout(async () => {
+      const { error } = await supabase.from('tasks').delete().eq('id', task.id);
+      if (error) {
+        setTasks((prev) => [task, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        notify("Error al borrar definitivamente", "error");
+      }
+    }, 5000);
+
+    notify("Tarea eliminada", "success", {
+      label: "Deshacer",
+      onClick: () => {
+        clearTimeout(timeoutId);
+        setTasks((prev) => [task, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        notify("Tarea restaurada", "info");
+      }
+    });
+  };
+
+  const filteredTasks = useMemo(() => {
     const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    
-    const daysMap = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    today.setHours(0, 0, 0, 0);
 
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
+    return tasks.filter((task) => {
+      if (activeFilter === 'todas') return true;
+      if (activeFilter === 'urgentes') return task.priority === 'alta';
       
-      const completedOnThisDay = tasks.filter(task => {
-        if (!task.is_completed) return false;
-        const taskDate = new Date(task.created_at);
-        return taskDate.toDateString() === d.toDateString();
-      }).length;
-
-      data.push({
-        name: i === 0 ? 'Hoy' : daysMap[d.getDay()],
-        completadas: completedOnThisDay,
-      });
-    }
-    return data;
-  }, [tasks]);
-
-  if (isLoading) {
-    return <div className="flex h-[50vh] items-center justify-center animate-pulse"><div className="w-10 h-10 bg-indigo-200 rounded-full" /></div>;
-  }
+      if (activeFilter === 'hoy' || activeFilter === 'proximas') {
+        if (!task.due_date) return false;
+        const [year, month, day] = task.due_date.split('-');
+        const taskDate = new Date(Number(year), Number(month) - 1, Number(day));
+        
+        if (activeFilter === 'hoy') return taskDate.getTime() <= today.getTime();
+        if (activeFilter === 'proximas') return taskDate.getTime() > today.getTime();
+      }
+      return true;
+    });
+  }, [tasks, activeFilter]);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 md:space-y-8 pb-32">
-      <header className="px-1 flex items-center justify-between">
-        <div>
-          <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-indigo-600 font-bold text-xs tracking-wider uppercase mb-2 hover:text-indigo-800 transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Volver
-          </Link>
-          <motion.h1 initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Mi Perfil
-          </motion.h1>
-        </div>
+    <div className="space-y-6 md:space-y-8 pb-32">
+      <header className="px-1">
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs tracking-wider uppercase mb-2">
+          <Calendar className="w-4 h-4" />
+          {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </motion.div>
+        <motion.h1 initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+          {greeting}{userName ? `, ${userName}` : ''}! <span className="text-2xl">👋</span>
+        </motion.h1>
       </header>
 
-      {/* TARJETA DE USUARIO */}
-      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center gap-6">
-        
-        {/* AVATAR INTERACTIVO */}
-        <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-          <div className="w-24 h-24 shrink-0 rounded-full overflow-hidden bg-linear-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-4xl font-black shadow-lg shadow-indigo-200 relative">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              userName.charAt(0).toUpperCase()
-            )}
-            
-            {/* OVERLAY DE CARGA O HOVER */}
-            <div className={`absolute inset-0 bg-slate-900/40 flex items-center justify-center transition-opacity duration-300 ${isUploadingAvatar ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-              {isUploadingAvatar ? (
-                <Loader2 className="w-8 h-8 text-white animate-spin" />
-              ) : (
-                <Camera className="w-8 h-8 text-white" />
-              )}
+      <CreateTaskForm 
+        newTaskTitle={newTaskTitle} setNewTaskTitle={setNewTaskTitle}
+        newTaskPriority={newTaskPriority} cyclePriority={cyclePriority}
+        newTaskDate={newTaskDate} setNewTaskDate={setNewTaskDate}
+        isAdding={isAdding} handleAddTask={handleAddTask} priorityColors={priorityColors}
+      />
+
+      <FilterCarousel activeFilter={activeFilter} setActiveFilter={setActiveFilter} />
+
+      <div className="space-y-3 min-h-[50vh]">
+        {isLoading ? (
+          [1, 2, 3].map((i) => (
+            <div key={i} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex items-center gap-4 animate-pulse">
+              <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800" />
+              <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-3/4" />
             </div>
-          </div>
-          
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleAvatarUpload} 
-            accept="image/*" 
-            className="hidden" 
-          />
-        </div>
-
-        <div className="flex-1 w-full text-center sm:text-left">
-          {isEditingName ? (
-            <div className="flex items-center gap-2 max-w-sm mx-auto sm:mx-0">
-              <input 
-                type="text" 
-                value={tempName} 
-                onChange={(e) => setTempName(e.target.value)}
-                autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateName(); if (e.key === 'Escape') setIsEditingName(false); }}
-                className="w-full bg-slate-50 border border-indigo-200 text-slate-900 font-bold text-xl rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-              />
-              <button onClick={handleUpdateName} className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all"><CheckCircle2 className="w-5 h-5" /></button>
+          ))
+        ) : filteredTasks.length === 0 ? (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-12 text-center">
+            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">
+              {activeFilter === 'urgentes' ? '🔥' : activeFilter === 'hoy' ? '☕' : '🎯'}
             </div>
-          ) : (
-            <h2 
-              onClick={() => setIsEditingName(true)} 
-              className="text-2xl font-bold text-slate-900 cursor-pointer hover:text-indigo-600 transition-colors group flex items-center justify-center sm:justify-start gap-2"
-              title="Click para editar"
-            >
-              {userName}
-              <User className="w-5 h-5 opacity-0 group-hover:opacity-100 text-indigo-400 transition-opacity" />
-            </h2>
-          )}
-          <div className="flex items-center justify-center sm:justify-start gap-1.5 mt-2 text-slate-500">
-            <Mail className="w-4 h-4" />
-            <span className="text-sm font-medium">{userEmail}</span>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* GRÁFICO DE ESTADÍSTICAS PREMIUM */}
-      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="p-2 bg-indigo-50 rounded-xl"><CheckCircle2 className="w-5 h-5 text-indigo-600" /></div>
-          <h3 className="text-lg font-bold text-slate-900">Productividad Semanal</h3>
-        </div>
-        
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} 
-                dy={10}
-              />
-              <Tooltip cursor={{ fill: '#f1f5f9', radius: 8 }} content={<CustomTooltip />} />
-              <Bar dataKey="completadas" radius={[6, 6, 6, 6]} maxBarSize={40} animationDuration={1500}>
-                {weeklyData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.name === 'Hoy' ? '#4f46e5' : '#818cf8'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.section>
-
-      {/* SEGURIDAD - ANTI ERRORES */}
-      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 bg-rose-50 rounded-xl"><ShieldCheck className="w-5 h-5 text-rose-500" /></div>
-          <h3 className="text-lg font-bold text-slate-900">Seguridad de la Cuenta</h3>
-        </div>
-        
-        <div className="space-y-3 max-w-md">
-          <label className="text-sm font-semibold text-slate-700 block">Nueva Contraseña</label>
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-              <Lock className="w-5 h-5" />
-            </div>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="••••••••"
-              className={`w-full pl-10 pr-4 py-3 bg-slate-50 border rounded-xl text-slate-900 font-medium outline-none transition-all ${
-                newPassword.length > 0 && !isPasswordValid ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 
-                isPasswordValid ? 'border-green-300 focus:border-green-500 focus:ring-green-200' : 
-                'border-slate-200 focus:border-indigo-500 focus:ring-indigo-200'
-              } focus:ring-2`}
-            />
-          </div>
-          
-          <div className="h-5 flex items-center transition-all">
-            {newPassword.length > 0 && (
-              isPasswordValid ? (
-                <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle2 className="w-3.5 h-3.5" /> Contraseña segura</span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle className="w-3.5 h-3.5" /> Mínimo 6 caracteres</span>
-              )
-            )}
-          </div>
-
-          <button 
-            onClick={handleUpdatePassword}
-            disabled={!isPasswordValid || isUpdatingPassword}
-            className="w-full sm:w-auto px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold rounded-xl transition-all active:scale-95"
-          >
-            {isUpdatingPassword ? 'Guardando...' : 'Actualizar Contraseña'}
-          </button>
-        </div>
-      </motion.section>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              {activeFilter === 'urgentes' ? '¡Qué alivio!' : activeFilter === 'hoy' ? 'Día libre' : 'Todo al día'}
+            </h3>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+              {activeFilter === 'urgentes' ? 'No hay fuegos que apagar.' : activeFilter === 'hoy' ? 'Completaste todo lo de hoy.' : 'No hay tareas en esta vista.'}
+            </p>
+          </motion.div>
+        ) : (
+          <Reorder.Group as="div" axis="y" values={filteredTasks} onReorder={handleReorder} className="space-y-3">
+            <AnimatePresence mode="popLayout">
+              {filteredTasks.map((task) => (
+                <TaskItem 
+                  key={task.id} 
+                  task={task} 
+                  onToggle={toggleTask} 
+                  onDelete={deleteTask} 
+                  onEdit={editTask}
+                />
+              ))}
+            </AnimatePresence>
+          </Reorder.Group>
+        )}
+      </div>
     </div>
   );
 }

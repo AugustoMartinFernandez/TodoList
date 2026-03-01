@@ -27,13 +27,15 @@ export default function FilterCarousel({ activeFilter, setActiveFilter }: Filter
               onClick={() => setActiveFilter(filter.id as FilterType)}
               whileTap={{ scale: 0.94 }}
               className={`shrink-0 relative flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-300 border ${
-                isActive ? 'text-white border-transparent' : 'text-slate-500 bg-white border-slate-200 shadow-sm hover:bg-slate-50 hover:text-slate-900'
+                isActive 
+                  ? 'text-white border-transparent' 
+                  : 'text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               {isActive && (
-                <motion.div layoutId="activeFilterTab" className="absolute inset-0 bg-indigo-600 rounded-full shadow-md shadow-indigo-600/30 z-0" transition={{ type: "spring", stiffness: 450, damping: 30 }} />
+                <motion.div layoutId="activeFilterTab" className="absolute inset-0 bg-indigo-600 dark:bg-indigo-500 rounded-full shadow-md shadow-indigo-600/30 dark:shadow-indigo-500/20 z-0" transition={{ type: "spring", stiffness: 450, damping: 30 }} />
               )}
-              <filter.icon className={`w-4 h-4 relative z-10 transition-transform duration-300 ${isActive ? 'scale-110 text-white' : 'text-slate-400'}`} />
+              <filter.icon className={`w-4 h-4 relative z-10 transition-transform duration-300 ${isActive ? 'scale-110 text-white' : 'text-slate-400 dark:text-slate-500'}`} />
               <span className="relative z-10 tracking-wide">{filter.label}</span>
             </motion.button>
           );

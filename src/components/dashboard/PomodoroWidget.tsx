@@ -1,11 +1,11 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Flame, Pause, Play, Square, Minimize2, Maximize2, Clock } from "lucide-react";
+import { X, Flame, Pause, Play, Square, Minimize2, Coffee } from "lucide-react";
 import { usePomodoro } from "@/src/context/PomodoroContext";
 
 export default function PomodoroWidget() {
-  const { focusTask, timeLeft, isTimerRunning, isMinimized, mode, startSession, toggleTimer, stopTimer, toggleMinimize, closePomodoro } = usePomodoro();
+  const { focusTask, timeLeft, isTimerRunning, isMinimized, mode, startSession, toggleTimer, stopTimer, toggleMinimize, closePomodoro, settings } = usePomodoro();
 
   if (!focusTask) return null;
 
@@ -16,7 +16,6 @@ export default function PomodoroWidget() {
   return (
     <AnimatePresence mode="wait">
       {isMinimized ? (
-        /* MODO PASTILLA (IPHONE STYLE) - TOP LEFT */
         <motion.div 
           key="pomodoro-minimized"
           layoutId="pomodoro-wrapper"
@@ -38,7 +37,6 @@ export default function PomodoroWidget() {
           </div>
         </motion.div>
       ) : (
-        /* MODO MAXIMIZADO (CONFIGURACIÓN O CORRIENDO) */
         <motion.div 
           key="pomodoro-maximized"
           layoutId="pomodoro-wrapper"
@@ -63,11 +61,23 @@ export default function PomodoroWidget() {
 
           {mode === 'config' ? (
             <div className="flex flex-col gap-3 w-full">
-              <span className="text-xs text-slate-400 font-medium uppercase tracking-wider text-center">Elegí tu tiempo de foco</span>
+              <span className="text-xs text-slate-400 font-medium uppercase tracking-wider text-center">¿Qué querés hacer?</span>
               <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => startSession(15)} className="py-2.5 bg-slate-800 hover:bg-indigo-600 rounded-xl text-sm font-bold transition-colors">15m</button>
-                <button onClick={() => startSession(25)} className="py-2.5 bg-slate-800 hover:bg-indigo-600 rounded-xl text-sm font-bold transition-colors flex flex-col items-center"><span className="text-xs text-indigo-300 font-normal">Clásico</span>25m</button>
-                <button onClick={() => startSession(50)} className="py-2.5 bg-slate-800 hover:bg-indigo-600 rounded-xl text-sm font-bold transition-colors flex flex-col items-center"><span className="text-xs text-indigo-300 font-normal">Deep</span>50m</button>
+                {/* BOTÓN TRABAJO */}
+                <button onClick={() => startSession(settings.workTime)} className="py-2 bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/30 hover:border-transparent rounded-xl transition-all flex flex-col items-center justify-center gap-1 group">
+                  <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider group-hover:text-white">Pomodoro</span>
+                  <span className="text-sm font-bold text-white">{settings.workTime}m</span>
+                </button>
+                {/* BOTÓN DESCANSO CORTO */}
+                <button onClick={() => startSession(settings.shortBreak)} className="py-2 bg-green-600/20 hover:bg-green-600 border border-green-500/30 hover:border-transparent rounded-xl transition-all flex flex-col items-center justify-center gap-1 group">
+                  <span className="text-[10px] text-green-300 font-bold uppercase tracking-wider group-hover:text-white flex items-center gap-1"><Coffee className="w-3 h-3"/> Corto</span>
+                  <span className="text-sm font-bold text-white">{settings.shortBreak}m</span>
+                </button>
+                {/* BOTÓN DESCANSO LARGO */}
+                <button onClick={() => startSession(settings.longBreak)} className="py-2 bg-blue-600/20 hover:bg-blue-600 border border-blue-500/30 hover:border-transparent rounded-xl transition-all flex flex-col items-center justify-center gap-1 group">
+                  <span className="text-[10px] text-blue-300 font-bold uppercase tracking-wider group-hover:text-white flex items-center gap-1"><Coffee className="w-3 h-3"/> Largo</span>
+                  <span className="text-sm font-bold text-white">{settings.longBreak}m</span>
+                </button>
               </div>
             </div>
           ) : (

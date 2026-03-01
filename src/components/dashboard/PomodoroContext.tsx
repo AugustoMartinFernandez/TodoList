@@ -6,19 +6,35 @@ import { Database } from '@/src/types/database.types';
 
 type Task = Database['public']['Tables']['tasks']['Row'];
 
+// NUEVOS NOMBRES QUE TIENEN SENTIDO
+export interface PomodoroSettings {
+  workTime: number;
+  shortBreak: number;
+  longBreak: number;
+}
+
 interface PomodoroContextType {
   focusTask: Task | null;
   timeLeft: number;
   isTimerRunning: boolean;
   isMinimized: boolean;
   mode: 'config' | 'running';
+  settings: PomodoroSettings;
   openPomodoro: (task: Task) => void;
   startSession: (minutes: number) => void;
   toggleTimer: () => void;
   stopTimer: () => void;
   toggleMinimize: () => void;
   closePomodoro: () => void;
+  updateSettings: (newSettings: PomodoroSettings) => void;
 }
+
+// VALORES POR DEFECTO ESTÁNDAR
+const defaultSettings: PomodoroSettings = {
+  workTime: 25,
+  shortBreak: 5,
+  longBreak: 15,
+};
 
 const PomodoroContext = createContext<PomodoroContextType | undefined>(undefined);
 
@@ -28,6 +44,20 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [mode, setMode] = useState<'config' | 'running'>('config');
+  
+  const [settings, setSettings] = useState<PomodoroSettings>(() => {
+    if (typeof window === 'undefined') return defaultSettings;
+    const savedSettings = localStorage.getItem('pomodoroSettingsV2'); // Cambiamos la key para no chocar con los datos viejos
+    if (savedSettings) {
+      try {
+        return JSON.parse(savedSettings);
+      } catch (e) {
+        console.error('Error parsing pomodoro settings', e);
+        return defaultSettings;
+      }
+    }
+    return defaultSettings;
+  });
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -37,12 +67,19 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
       setTimeout(() => {
         setIsTimerRunning(false);
         setIsMinimized(false);
-        sileo.success({ title: "¡Tiempo terminado!", description: "Gran trabajo de foco." });
+        sileo.success({ title: "¡Tiempo terminado!", description: "Aprovecha para relajarte o cambiar de tarea." });
         try { navigator.vibrate([200, 100, 200]); } catch {}
       }, 0);
     }
     return () => clearInterval(interval);
   }, [isTimerRunning, timeLeft]);
+
+  const updateSettings = (newSettings: PomodoroSettings) => {
+    setSettings(newSettings);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pomodoroSettingsV2', JSON.stringify(newSettings));
+    }
+  };
 
   const openPomodoro = (task: Task) => {
     setFocusTask(task);
@@ -63,7 +100,10 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
   const closePomodoro = () => { setFocusTask(null); setIsTimerRunning(false); };
 
   return (
-    <PomodoroContext.Provider value={{ focusTask, timeLeft, isTimerRunning, isMinimized, mode, openPomodoro, startSession, toggleTimer, stopTimer, toggleMinimize, closePomodoro }}>
+    <PomodoroContext.Provider value={{ 
+      focusTask, timeLeft, isTimerRunning, isMinimized, mode, settings, 
+      openPomodoro, startSession, toggleTimer, stopTimer, toggleMinimize, closePomodoro, updateSettings 
+    }}>
       {children}
     </PomodoroContext.Provider>
   );

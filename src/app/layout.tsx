@@ -1,36 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { NotificationProvider } from "@/src/context/NotificationContext";
+import { PomodoroProvider } from "@/src/context/PomodoroContext";
+import { ThemeProvider } from "@/src/components/ThemeProvider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Todo List Pro",
-  description: "Un gestor de tareas profesional sin fricción",
+  title: "TodoPro | Productividad Diaria",
+  description: "Gestiona tus tareas con UX perfecta",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="es" className="scroll-smooth">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans text-slate-900`}
-      >
-        <NotificationProvider>
-          {children}
-        </NotificationProvider>
+    <html lang="es" suppressHydrationWarning>
+      <body className={`${inter.className} bg-slate-50 text-slate-900 transition-colors duration-500 ease-in-out dark:bg-slate-950 dark:text-slate-50 min-h-screen`}>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <NotificationProvider>
+            <PomodoroProvider>
+              {children}
+            </PomodoroProvider>
+          </NotificationProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
